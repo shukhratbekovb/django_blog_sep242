@@ -1,11 +1,12 @@
-from django.shortcuts import render, redirect
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DetailView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.views import LoginView
-from app.models import Post
-from app.forms import PostForm, CustomUserCreationForm
+from app.models import Post, DisLike, Like, Report
+from app.forms import PostForm, CustomUserCreationForm, CommentForm
+
 
 # TODO: Сделать Страницу Главную Index
 class IndexView(ListView):
@@ -75,6 +76,15 @@ class PostDetailView(DetailView):
     # Имя Переменной в Шаблон
     context_object_name = "post"
 
+    def get_context_data(self, **kwargs):
+        """
+        Помогает засунуть доп переменные
+        """
+        context = super().get_context_data(**kwargs)
+        context["comment_form"] = CommentForm()  # Мы добавили переменную comment_form
+        context["post_test"] = "Тестовое"
+        return context
+
 
 # TODO: Сделать Страницу Изменение Поста
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
@@ -138,3 +148,73 @@ class CustomLoginView(LoginView):
     template_name = "app/login.html"
     success_url = reverse_lazy("index")
 
+
+@login_required
+def like_post(request, post_id):
+    if request.method == "POST":
+        post = get_object_or_404(Post, pk=post_id)
+
+        # Удаление Дизлайка
+        DisLike.objects.filter(post=post, user=request.user).delete()
+
+        like, created = Like.objects.get_or_create(user=request.user, post=post)
+
+        if not created:
+            like.delete()
+
+        return redirect("post-detail", post_id)
+
+
+@login_required
+def dislike_post(request, post_id):
+    if request.method == "POST":
+        post = get_object_or_404(Post, pk=post_id)
+
+        # Удаление Лайк
+        Like.objects.filter(post=post, user=request.user).delete()
+
+        dislike, created = DisLike.objects.get_or_create(user=request.user, post=post)
+
+        if not created:
+            dislike.delete()
+
+        return redirect("post-detail", post_id)
+
+
+@login_required
+def create_comment(request, post_id):
+    if request.method == "POST":
+        post = get_object_or_404(Post, pk=post_id)
+        form = CommentForm(request.POST)
+        if form.is_valid():
+            comment = form.save(commit=False)
+            comment.user = request.user  # Вручную указали ПОльзователя который создал коммент
+            comment.post = post  # Вручную указали Пост к которому создан коммент
+            comment.save()  # Сохранили Коммент
+            return redirect("post-detail", post_id)
+        else:
+            # Нужно доработать и сделать Ошибку
+            return redirect("post-detail", post_id)
+    else:  # GET
+        return redirect("post-detail", post_id)
+
+
+# ДЗ вам сделать эту страницу
+def about_us(request):
+    pass
+
+
+# TODO: Создание Жалоб
+def create_report(request, post_id):
+    pass
+
+
+# TODO: Получение Списка Жалоб
+class ReportListView(LoginRequiredMixin, ListView):
+    model = Report
+    template_name = "app/report_list.html"
+    context_object_name = "reports"
+
+    def get_queryset(self):  # Фильтруем данные
+        # Мы сделали так чтобы пользователь видел только свои Жалобы
+        return Report.objects.filter(user=self.request.user)
