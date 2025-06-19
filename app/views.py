@@ -4,8 +4,9 @@ from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DetailView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.views import LoginView
+from django.contrib.auth.models import User
 from app.models import Post, DisLike, Like, Report
-from app.forms import PostForm, CustomUserCreationForm, CommentForm
+from app.forms import PostForm, CustomUserCreationForm, CommentForm, ReportForm, UserChangeForm, MediaFormSet
 
 
 # TODO: Сделать Страницу Главную Index
@@ -45,6 +46,30 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.author = self.request.user
         return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["media_formset"] = kwargs.get("media_formset") or MediaFormSet()
+        return context
+
+    # Так как используем FormSet нам придется вручную сохранять
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()  # Получаем заполненую Форму поста
+        media_formset = MediaFormSet(request.POST, request.FILES)  # Получаем заполненый медиа
+
+        # Проверяем Правильно ли заполненые формы
+        if form.is_valid() and media_formset.is_valid():
+            post = form.save(commit=False)
+            post.author = self.request.user  # Добавляем автора созданного поста
+            post.save()
+
+            media_formset.instance = post  # вставляем пост для которого медиа заполнели
+            media_formset.save()  # Сохраняем медиа
+
+            return redirect("index")  # После успеха отправляем на главную страницу
+        return self.render_to_response(
+            self.get_context_data(form=form, media_formset=media_formset)
+        )
 
 
 # TODO: Сделать Страницу Списка Постов
@@ -205,8 +230,39 @@ def about_us(request):
 
 
 # TODO: Создание Жалоб
+@login_required
 def create_report(request, post_id):
-    pass
+    post = get_object_or_404(Post, pk=post_id)
+    # Когда человек заполнил форму
+    if request.method == "POST":
+        form = ReportForm(request.POST)
+        if form.is_valid():
+            report = form.save(commit=False)
+            report.user = request.user
+            report.post = post
+            report.save()
+            return redirect("post-detail", post_id)
+        else:
+            form = ReportForm()
+            return render(
+                request,
+                "app/report_form.html",
+                {
+                    "form": form,
+                    "post_id": post_id
+                }
+            )
+    # Когда человек впревые зашел на страницу заполнения
+    else:
+        form = ReportForm()
+        return render(
+            request,
+            "app/report_form.html",
+            {
+                "form": form,
+                "post_id": post_id
+            }
+        )
 
 
 # TODO: Получение Списка Жалоб
@@ -218,3 +274,27 @@ class ReportListView(LoginRequiredMixin, ListView):
     def get_queryset(self):  # Фильтруем данные
         # Мы сделали так чтобы пользователь видел только свои Жалобы
         return Report.objects.filter(user=self.request.user)
+
+
+# Профиль
+@login_required
+def profile_view(request):
+    return render(
+        request,
+        "app/profile.html",
+
+    )
+
+
+# Изменение Пароля
+# Изменение Информация Пользователя
+class UserUpdateView(UpdateView):
+    form_class = UserChangeForm
+    template_name = "app/user_form.html"
+    success_url = reverse_lazy("index")
+    model = User
+
+
+class UserPostListView(PostListView):
+    def get_queryset(self):
+        return Post.objects.filter(author=self.request.user)

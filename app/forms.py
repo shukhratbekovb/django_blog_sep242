@@ -3,8 +3,37 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from app.models import Post, Comment
-from django.contrib.auth.forms import UserCreationForm
+from app.models import Post, Comment, Report, Media
+from django.contrib.auth.forms import UserCreationForm, UserChangeForm as BaseUserChangeForm
+
+
+class PostMediaForm(forms.ModelForm):
+    url = forms.URLField(required=False)
+    file = forms.ImageField(required=False)
+
+    class Meta:
+        model = Media
+        fields = ["url", "file"]
+
+    # Проверка На то что пользователь дал ссылку либо изображение
+    def clean(self):
+        cleaned_data = super().clean()
+        url = cleaned_data.get("url")
+        file = cleaned_data.get("file")
+
+        if url and file:
+            raise forms.ValidationError("Братан нельзя указывать и ссылку, и файл одновременно")
+        if not url and not file:
+            raise forms.ValidationError("Нужно указывать либо ссылку, либо файл")
+        return cleaned_data
+
+
+MediaFormSet = forms.inlineformset_factory(
+    Post, Media,
+    form=PostMediaForm,
+    extra=3,
+    can_delete=True
+)
 
 
 class PostForm(forms.ModelForm):
@@ -39,3 +68,35 @@ class CommentForm(forms.ModelForm):
     class Meta:
         model = Comment
         fields = ["body"]
+
+
+class ReportForm(forms.ModelForm):
+    description = forms.CharField(max_length=1024, widget=forms.Textarea(
+        attrs={
+            "class": "form-control",
+            "rows": 3,
+            "placeholder": "Опишите вашу ситуацию"
+        }
+    ))
+
+    class Meta:
+        fields = ["theme", "description"]
+        model = Report
+        widgets = {
+            "theme": forms.Select(
+                attrs={
+                    "class": "form-select"
+                }
+            )
+        }
+
+
+class UserChangeForm(BaseUserChangeForm):
+    class Meta(BaseUserChangeForm.Meta):
+        model = User
+        fields = (
+            "username",
+            "first_name",
+            "last_name",
+            "email"
+        )
